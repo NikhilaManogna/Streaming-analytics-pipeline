@@ -14,12 +14,50 @@ This repository contains a local real-time analytics system built around Kafka, 
 ## Architecture
 
 ```text
-[Producer] -> [Kafka topic: events] -> [Spark Structured Streaming] -> [PostgreSQL] -> [Streamlit]
-                                             |
-                                             +--> [dead_letter_events]
+                         +-----------------------------+
+                         |      Python Producer        |
+                         |  user activity simulator    |
+                         |  retries + duplicate rate   |
+                         +-------------+---------------+
+                                       |
+                                       v
+                         +-----------------------------+
+                         |       Kafka: events         |
+                         |      3 partitions topic     |
+                         | durable event buffer        |
+                         +-------------+---------------+
+                                       |
+                                       v
+                    +-----------------------------------------+
+                    |     Spark Structured Streaming          |
+                    | JSON parsing + validation               |
+                    | dedupe on event_id + watermark          |
+                    | minute windows + anomaly detection      |
+                    +-------------+---------------+-----------+
+                                  |               |
+                         valid aggregates   invalid payloads
+                                  |               |
+                                  v               v
+                 +---------------------------+   +---------------------------+
+                 | PostgreSQL: analytics     |   | PostgreSQL: dead_letter   |
+                 | revenue / active users    |   | invalid payload + reason  |
+                 | event_count / anomaly     |   | data quality inspection   |
+                 +-------------+-------------+   +---------------------------+
+                               |
+                               v
+                    +-----------------------------+
+                    |    Streamlit Dashboard      |
+                    | KPI cards + trends + DQ     |
+                    | auto-refresh every 5 sec    |
+                    +-----------------------------+
 ```
 
-The producer intentionally emits a small percentage of repeated events so the stream processor has to perform sink-safe deduplication. Spark writes one row per minute window with revenue, approximate active users, event volume, and a revenue spike flag.
+The pipeline has two outputs from the Spark layer:
+
+- validated events are aggregated into minute-level serving metrics
+- malformed events are written to a dead-letter table for traceability
+
+That split is intentional. It keeps the analytics path clean without hiding bad source data.
 
 ## Tech Stack
 

@@ -1,25 +1,51 @@
 Real-Time Analytics Pipeline
 ============================
 
-ASCII Diagram
--------------
+System Diagram
+--------------
 
-+----------------+       +-----------------------+       +---------------------------+       +-------------------+       +------------------+
-| Python Producer| ----> | Kafka topic: events   | ----> | Spark Structured Streaming| ----> | PostgreSQL         | ----> | Streamlit Dashboard|
-| 10K+ events    |       | 3 partitions          |       | dedupe + windowed metrics |       | analytics_metrics  |       | live charts        |
-+----------------+       +-----------------------+       +---------------------------+       +-------------------+       +------------------+
-         |                             |                                  |                                |                               |
-         | retry + malformed events    | partitioned event stream         | watermark + anomaly flag       | indexed aggregate rows        | periodic refresh
-         |                             |                                  +-----------------------------+  |
-         |                             |                                                                |  |
-         |                             +--------------------------------------------------------------> | dead_letter_events |
-         |                                                                                               +--------------------+
+                         +-----------------------------+
+                         |      Python Producer        |
+                         |  click / order / payment    |
+                         |  retries + duplicate rate   |
+                         +-------------+---------------+
+                                       |
+                                       v
+                         +-----------------------------+
+                         |       Kafka: events         |
+                         |      3 partitions topic     |
+                         | durable ingestion buffer    |
+                         +-------------+---------------+
+                                       |
+                                       v
+                    +-----------------------------------------+
+                    |     Spark Structured Streaming          |
+                    | parse JSON + validate payloads          |
+                    | dedupe on event_id + watermark          |
+                    | minute windows + anomaly detection      |
+                    +-------------+---------------+-----------+
+                                  |               |
+                         valid aggregates   invalid payloads
+                                  |               |
+                                  v               v
+                 +---------------------------+   +---------------------------+
+                 | PostgreSQL: analytics     |   | PostgreSQL: dead_letter   |
+                 | revenue / active users    |   | invalid_reason + payload  |
+                 | event_count / anomaly     |   | data quality inspection   |
+                 +-------------+-------------+   +---------------------------+
+                               |
+                               v
+                    +-----------------------------+
+                    |    Streamlit Dashboard      |
+                    | KPI cards + trends + DQ     |
+                    | refresh every 5 seconds     |
+                    +-----------------------------+
 
-Components
-----------
+Component Notes
+---------------
 
 1. Producer
-   Generates click, order, and payment events with a small duplicate rate and a small malformed-event rate. It uses retries so transient broker issues do not immediately drop messages.
+   Generates click, order, and payment events with a small duplicate rate and a small malformed-event rate. Retries are enabled to reduce transient publish failures.
 
 2. Kafka
    Buffers incoming events on the `events` topic. Topic creation is explicit and configured with three partitions.
@@ -28,7 +54,7 @@ Components
    Consumes Kafka records, parses JSON, filters invalid payloads, drops duplicates using `event_id`, applies a two-minute watermark, computes one-minute aggregates, and writes malformed records to a dead-letter table.
 
 4. PostgreSQL
-   Stores the latest aggregate for each minute window. Upserts keep window rows stable while Spark updates open windows.
+   Stores both serving metrics and invalid-event records. Aggregate rows are upserted by minute window so open windows stay current.
 
 5. Streamlit
-   Reads the aggregated table and renders revenue, active users, per-minute event volume, and dead-letter summaries with automatic refresh.
+   Reads the serving tables and renders revenue, active users, per-minute event volume, anomaly signals, and dead-letter summaries.
