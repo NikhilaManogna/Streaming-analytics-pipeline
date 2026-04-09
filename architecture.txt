@@ -1,0 +1,34 @@
+Real-Time Analytics Pipeline
+============================
+
+ASCII Diagram
+-------------
+
++----------------+       +-----------------------+       +---------------------------+       +-------------------+       +------------------+
+| Python Producer| ----> | Kafka topic: events   | ----> | Spark Structured Streaming| ----> | PostgreSQL         | ----> | Streamlit Dashboard|
+| 10K+ events    |       | 3 partitions          |       | dedupe + windowed metrics |       | analytics_metrics  |       | live charts        |
++----------------+       +-----------------------+       +---------------------------+       +-------------------+       +------------------+
+         |                             |                                  |                                |                               |
+         | retry + malformed events    | partitioned event stream         | watermark + anomaly flag       | indexed aggregate rows        | periodic refresh
+         |                             |                                  +-----------------------------+  |
+         |                             |                                                                |  |
+         |                             +--------------------------------------------------------------> | dead_letter_events |
+         |                                                                                               +--------------------+
+
+Components
+----------
+
+1. Producer
+   Generates click, order, and payment events with a small duplicate rate and a small malformed-event rate. It uses retries so transient broker issues do not immediately drop messages.
+
+2. Kafka
+   Buffers incoming events on the `events` topic. Topic creation is explicit and configured with three partitions.
+
+3. Spark Streaming
+   Consumes Kafka records, parses JSON, filters invalid payloads, drops duplicates using `event_id`, applies a two-minute watermark, computes one-minute aggregates, and writes malformed records to a dead-letter table.
+
+4. PostgreSQL
+   Stores the latest aggregate for each minute window. Upserts keep window rows stable while Spark updates open windows.
+
+5. Streamlit
+   Reads the aggregated table and renders revenue, active users, per-minute event volume, and dead-letter summaries with automatic refresh.
