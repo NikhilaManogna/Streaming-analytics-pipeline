@@ -1,0 +1,8 @@
+﻿PyYAML==6.0.2
+kafka-python==2.0.2
+psycopg2-binary==2.9.9
+SQLAlchemy==2.0.36
+pandas==2.2.3
+streamlit==1.40.2
+streamlit-autorefresh==1.0.1
+pyspark==3.5.1

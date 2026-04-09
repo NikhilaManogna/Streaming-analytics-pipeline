@@ -1,0 +1,45 @@
+kafka:
+  brokers:
+    - kafka:29092
+  topic: events
+  partitions: 3
+  replication_factor: 1
+  starting_offsets: earliest
+  fail_on_data_loss: false
+  max_offsets_per_trigger: 5000
+
+postgres:
+  host: postgres
+  port: 5432
+  database: analytics
+  user: analytics_user
+  password: analytics_password
+
+producer:
+  target_events: 20000
+  continuous: true
+  interval_seconds: 0.005
+  retries: 5
+  duplicate_ratio: 0.02
+  invalid_ratio: 0.01
+  acks: all
+  linger_ms: 50
+  batch_size: 32768
+  request_timeout_ms: 30000
+  max_in_flight_requests_per_connection: 5
+  compression_type: gzip
+
+spark:
+  app_name: real-time-analytics-pipeline
+  trigger_interval: 10 seconds
+  watermark: 2 minutes
+  checkpoint_dir: /tmp/spark-checkpoints/events
+  shuffle_partitions: 6
+  state_store_maintenance_interval: 60s
+  log_level: WARN
+
+dashboard:
+  refresh_seconds: 5
+
+anomaly_detection:
+  revenue_spike_threshold: 5000
